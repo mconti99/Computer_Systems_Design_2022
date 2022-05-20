@@ -18,14 +18,22 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "dwt_stm32_delay.h"
+#include <stdbool.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
+
 /* USER CODE BEGIN PTD */
+typedef struct{
+	int mode; //intero per modalità corrente
+	float intensity;
+	bool LightON; //bool true se luce accesa, false altrimenti
+	int tempo; //tempo rimanente
+	uint32_t signalRcv;//dato ricevuto dal remote controller
+}SmartLamp;
 
 /* USER CODE END PTD */
 
@@ -39,9 +47,11 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
- I2C_HandleTypeDef hi2c1;
+I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
+
+TIM_HandleTypeDef htim2;
 
 PCD_HandleTypeDef hpcd_USB_FS;
 
@@ -55,13 +65,30 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USB_PCD_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+SmartLamp S;
+void delay_us(uint16_t us){
+	__HAL_TIM_SET_COUNTER(&htim2,0);
+	while(__HAL_TIM_GET_COUNTER(&htim2)<=us);
+}
 
+//dato per assunto un if nel main che controlla signalRcv=FUNC/STOP, la funzione cambia
+//la modalità di funzionamento in base al tasto premuto
+
+void ChangeMode(const uint32_t segnaleRicevuto, int* mode){
+	switch(segnaleRicevuto){
+	case 0xFF30CF: mode=1;    break;
+	case 0xFF18E7: mode=2;    break;
+	case 0xFF7A85: mode=3;    break;
+	default: break; //caso in cui premo uno qualunquedegli altri tasti
+	}
+}
 /* USER CODE END 0 */
 
 /**
@@ -95,9 +122,11 @@ int main(void)
   MX_I2C1_Init();
   MX_SPI1_Init();
   MX_USB_PCD_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   uint32_t data=0;
   uint32_t count=0;
+  HAL_TIM_Base_Start(&htim2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -116,16 +145,24 @@ int main(void)
 	    while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)))  // count the space length while the pin is high
 	   {
 	    count++;
-	    DWT_Delay_us(100);
+	    delay_us(100); //devo aspettare 100us tra un campionamento e un altro
 	   }
 
-	   if (count > 12) // if the space is more than 1.2 ms
-	   {
-	    data |= (1UL << (31-i));   // write 1
+	    if (count > 12) // if the space is more than 1.2 ms
+	     {
+	      data |= (1UL << (31-i));   // write 1
+	     }
+
+	     else data &= ~(1UL << (31-i));  // write
 	   }
 
-	   else data &= ~(1UL << (31-i));  // write 0
-	  }
+	  if(data==0xFFFFFFFF) HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+	  /*
+	  SmartLamp.LightON=0;
+	  SmartLamp.mode=0;
+	  SmartLamp.intensity=0;
+*/
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -266,6 +303,51 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 47;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
