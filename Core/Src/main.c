@@ -18,19 +18,18 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include <stdbool.h>
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
-
 /* USER CODE BEGIN PTD */
 typedef struct{
 	int mode; //intero per modalità corrente
 	float intensity;
-	bool LightON; //bool true se luce accesa, false altrimenti
+	//bool LightON; //bool true se luce accesa, false altrimenti
 	int tempo; //tempo rimanente
 	uint32_t signalRcv;//dato ricevuto dal remote controller
 }SmartLamp;
@@ -47,7 +46,7 @@ typedef struct{
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-I2C_HandleTypeDef hi2c1;
+ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
 
@@ -72,20 +71,76 @@ static void MX_TIM2_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-SmartLamp S;
 void delay_us(uint16_t us){
 	__HAL_TIM_SET_COUNTER(&htim2,0);
 	while(__HAL_TIM_GET_COUNTER(&htim2)<=us);
 }
+uint32_t data=0;
+uint8_t count=0;
+uint32_t receive_data (void)
+{
 
+	  uint32_t code=0;
+
+		  /* The START Sequence begin here
+	   * there will be a pulse of 9ms LOW and
+	   * than 4.5 ms space (HIGH)
+	   */
+	  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go high.. 9ms LOW
+
+	  while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go low.. 4.5ms HIGH
+	  /* START of FRAME ends here*/
+
+	  /* DATA Reception
+	   * We are only going to check the SPACE after 562.5us pulse
+	   * if the space is 562.5us, the bit indicates '0'
+	   * if the space is around 1.6ms, the bit is '1'
+	   */
+
+	  for (int i=0; i<32; i++)
+	  {
+		  count=0;
+
+		  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10))); // wait for pin to go high.. this is 562.5us LOW
+
+		  while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)))
+		  {
+			  count++;
+			  HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_9);
+			  delay_us(100);
+			  HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_9);
+		  }
+
+		  if (count > 12) // if the space is more than 1.2 ms
+		  {
+			  code |= (1UL << (31-i));   // write 1
+		  }
+
+		  else code &= ~(1UL << (31-i));  // write 0
+	  }
+
+		return code;
+}
+
+SmartLamp S;
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	//HAL_GPIO_TogglePin(GPIOE,GPIO_PIN_9);
+	if(GPIO_Pin == GPIO_PIN_10){
+		while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go low.. 4.5ms HIGH
+		data = receive_data ();
+		if(data==0xFFA25D) HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+		HAL_Delay(300);
+	}
+}
 //dato per assunto un if nel main che controlla signalRcv=FUNC/STOP, la funzione cambia
 //la modalità di funzionamento in base al tasto premuto
 
 void ChangeMode(const uint32_t segnaleRicevuto, int* mode){
 	switch(segnaleRicevuto){
-	case 0xFF30CF: mode=1;    break;
-	case 0xFF18E7: mode=2;    break;
-	case 0xFF7A85: mode=3;    break;
+	case 0xFF30CF: *mode=1;    break;
+	case 0xFF18E7: *mode=2;    break;
+	case 0xFF7A85: *mode=3;    break;
 	default: break; //caso in cui premo uno qualunquedegli altri tasti
 	}
 }
@@ -124,45 +179,16 @@ int main(void)
   MX_USB_PCD_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  uint32_t data=0;
-  uint32_t count=0;
+  HAL_TIM_Base_Init(&htim2);
   HAL_TIM_Base_Start(&htim2);
+  delay_us(600);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  while (HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10));   // wait for the pin to go low
-	  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go high.. 9ms LOW
-	  while (HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10));
-
-	  for (int i=0; i<32; i++)
-	  {
-	    count=0;
-	    while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10))); // wait for pin to go high.. this is 562.5us LOW
-
-	    while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)))  // count the space length while the pin is high
-	   {
-	    count++;
-	    delay_us(100); //devo aspettare 100us tra un campionamento e un altro
-	   }
-
-	    if (count > 12) // if the space is more than 1.2 ms
-	     {
-	      data |= (1UL << (31-i));   // write 1
-	     }
-
-	     else data &= ~(1UL << (31-i));  // write
-	   }
-
-	  if(data==0xFFFFFFFF) HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
-	  /*
-	  SmartLamp.LightON=0;
-	  SmartLamp.mode=0;
-	  SmartLamp.intensity=0;
-*/
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -425,11 +451,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : B1_Pin PA10 */
-  GPIO_InitStruct.Pin = B1_Pin|GPIO_PIN_10;
+  /*Configure GPIO pin : B1_Pin */
+  GPIO_InitStruct.Pin = B1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB0 */
   GPIO_InitStruct.Pin = GPIO_PIN_0;
@@ -437,6 +463,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
