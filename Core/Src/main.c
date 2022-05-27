@@ -85,11 +85,63 @@ int stato = 0;
 int config = 0;
 int countdown = 0;
 
+
+void spegni_luce(){
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+}
+
+void accendi_luce(){
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+}
+
+void toggle_luce(){
+	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+}
+
+void gestisci_tasto(int tasto){
+	if(stato == 0){
+		if(tasto == 0){
+			toggle_luce();
+		}
+		else if(tasto == 1){
+			spegni_luce();
+			HAL_TIM_Base_Start_IT(&htim4);
+			stato = 1;
+		}
+	}
+	else if(stato == 1){
+		if(tasto == 1){
+			HAL_TIM_Base_Stop_IT(&htim4);
+			spegni_luce();
+			config = 1;
+			countdown = 0;
+			stato = 2;
+		}
+	}
+	else if(stato == 2){
+		if(tasto == 1){
+			stato = 0;
+		} else if(config == 1){
+			if(tasto == 9){
+				config = 0;
+				countdown--;
+				accendi_luce();
+				__HAL_TIM_SET_COUNTER(&htim3,0);
+				HAL_TIM_Base_Start_IT(&htim3);
+			} else if(tasto >= 11 && tasto <= 20){
+				tasto = tasto - 11;
+				countdown = countdown*10 + tasto;
+			}
+		}
+	}
+}
+
 uint32_t receive_data_ir (void){
 	  uint32_t code=0;
+
+	  while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10))); // whut^?
 	  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go high.. 9ms LOW
       while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go low.. 4.5ms HIGH
-
 
 
 	  for (int i=0; i<32; i++){
@@ -103,8 +155,8 @@ uint32_t receive_data_ir (void){
 		  if (count > 12) code |= (1UL << (31-i));
 		  else code &= ~(1UL << (31-i));
 	  }
-
-		return code;
+	  HAL_Delay(200);
+	  return code;
 }
 
 int convert_data_ir(uint32_t data){
@@ -135,65 +187,13 @@ int convert_data_ir(uint32_t data){
 	}
 }
 
-void spegni_luce(){
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-}
-
-void accendi_luce(){
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-}
-
-void toggle_luce(){
-	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
-}
-
-void gestisci_tasto(int tasto){
-	if(stato == 0){
-		if(tasto == 0){
-			toggle_luce();
-		}
-		else if(tasto == 1){
-			spegni_luce();
-			HAL_TIM_Base_Start_IT(&htim4); // avvio tim3 per le misurazioni della luce
-			stato = 1;
-		}
-	}
-	else if(stato == 1){
-		if(tasto == 1){
-			HAL_TIM_Base_Stop_IT(&htim4);
-			spegni_luce();
-			config = 1;
-			countdown = 0;
-			stato = 2;
-		}
-	}
-	else if(stato == 2){
-		if(tasto == 1){
-			stato = 0;
-		} else if(config == 1){
-			if(tasto == 9){
-				config = 0;
-				countdown--;
-				accendi_luce();
-				__HAL_TIM_SET_COUNTER(&htim3,0);
-				HAL_TIM_Base_Start_IT(&htim3);
-			} else if(tasto >= 11 && tasto <= 20){ // se premo un numero
-				tasto = tasto - 11;
-				countdown = countdown*10 + tasto;
-			}
-		}
-	}
-}
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	if(GPIO_Pin == GPIO_PIN_10){
-		while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));
-
 		uint32_t data = receive_data_ir();
 		int tasto_premuto = convert_data_ir(data);
 
 		gestisci_tasto(tasto_premuto);
-		HAL_Delay(200);
 	}
 }
 
@@ -231,6 +231,15 @@ int convert_data_bt(uint8_t data){
 	}
 }
 
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
+  if(stato == 1){
+	  uint16_t adc_val = HAL_ADC_GetValue(&hadc1);
+	  if(AD_RES >= 2000) accendi_luce();
+  	  else spegni_luce();
+	  HAL_TIM_Base_Start_IT(&htim4);
+  }
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart){
 	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET);
 	if(huart->Instance == huart4.Instance){
@@ -252,17 +261,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	 else
 		 countdown--;
  }
- if(htim == &htim4 && stato == 1){
-	 HAL_ADC_Start(&hadc1);
-	 HAL_ADC_PollForConversion(&hadc1, 1);
-	 uint16_t AD_RES = HAL_ADC_GetValue(&hadc1);
-	 if(AD_RES >= 2000) accendi_luce(); //accendi
-	 else spegni_luce(); //spegni
+ if(htim == &htim4){
+	 if(stato == 1) HAL_ADC_Start(&hadc1);
+	 HAL_TIM_Base_Stop_IT(&htim4);
+	 __HAL_TIM_SET_COUNTER(&htim3,0);
  }
 }
-
-
-
 
 /* USER CODE END 0 */
 
@@ -307,6 +311,7 @@ int main(void)
   HAL_TIM_Base_Start(&htim2);
 
   HAL_ADCEx_Calibration_Start(&hadc1, 0);
+  HAL_ADC_Start_IT (&hadc1);
 
 
   HAL_UART_Receive_IT(&huart4, RX_BUFFER, BUFFER_LEN);
