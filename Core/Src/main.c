@@ -31,6 +31,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define BUFFER_LEN 1
+uint8_t RX_BUFFER[BUFFER_LEN] = {0};
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,6 +51,8 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
+UART_HandleTypeDef huart4;
+
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
@@ -65,6 +69,7 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_UART4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -80,15 +85,14 @@ int stato = 0;
 int config = 0;
 int countdown = 0;
 
-uint32_t receive_data (void)
-{
-
+uint32_t receive_data_ir (void){
 	  uint32_t code=0;
 	  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go high.. 9ms LOW
-	  while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go low.. 4.5ms HIGH
+      while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go low.. 4.5ms HIGH
 
-	  for (int i=0; i<32; i++)
-	  {
+
+
+	  for (int i=0; i<32; i++){
 		  uint8_t count=0;
 		  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));
 		  while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10))){
@@ -169,6 +173,7 @@ void gestisci_tasto(int tasto){
 		} else if(config == 1){
 			if(tasto == 9){
 				config = 0;
+				countdown--;
 				accendi_luce();
 				__HAL_TIM_SET_COUNTER(&htim3,0);
 				HAL_TIM_Base_Start_IT(&htim3);
@@ -181,15 +186,57 @@ void gestisci_tasto(int tasto){
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-
 	if(GPIO_Pin == GPIO_PIN_10){
 		while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));
 
-		uint32_t data = receive_data();
-		int tasto = convert_data_ir(data);
+		uint32_t data = receive_data_ir();
+		int tasto_premuto = convert_data_ir(data);
 
-		gestisci_tasto(tasto);
+		gestisci_tasto(tasto_premuto);
 		HAL_Delay(200);
+	}
+}
+
+
+uint8_t recive_data_bt(){
+	HAL_UART_Receive_IT(&huart4, RX_BUFFER, BUFFER_LEN);
+	return RX_BUFFER[0];
+}
+
+int convert_data_bt(uint8_t data){
+	switch(data) {
+		case 0x00: return 0; break; // power
+		case 0x01: return 1; break; //func/stop
+		case 0x02: return 2; break; //vol+
+		case 0x03: return 3; break; //fast back
+		case 0x04: return 4; break; //pause
+		case 0x05: return 5; break; //fast forward
+		case 0x06: return 6; break; //down
+		case 0x07: return 7; break; //vol-
+		case 0x08: return 8; break; //up
+		case 0x09: return 9; break; // eq
+		case 0x0A: return 10; break; //st/rept
+		case 0x0B: return 11; break; //0
+		case 0x0C: return 12; break; //1
+		case 0x0D: return 13; break; //2
+		case 0x0E: return 14; break; //3
+		case 0x0F: return 15; break; // 4
+		case 0x10: return 16; break; //5
+		case 0x11: return 17; break; //6
+		case 0x12: return 18; break; //7
+		case 0x13: return 19; break; // 8
+		case 0x14: return 20; break; //9
+		case 0xFF: return 21;break; //repeat
+		default:  return -1; //err
+	}
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart){
+	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET);
+	if(huart->Instance == huart4.Instance){
+		uint8_t data = recive_data_bt();
+		int tasto_premuto = convert_data_bt(data);
+		gestisci_tasto(tasto_premuto);
 	}
 }
 
@@ -215,17 +262,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 }
 
 
-//dato per assunto un if nel main che controlla signalRcv=FUNC/STOP, la funzione cambia
-//la modalità di funzionamento in base al tasto premuto
 
-void ChangeMode(const uint32_t segnaleRicevuto, int* mode){
-	switch(segnaleRicevuto){
-	case 0xFF30CF: *mode=1;    break;
-	case 0xFF18E7: *mode=2;    break;
-	case 0xFF7A85: *mode=3;    break;
-	default: break; //caso in cui premo uno qualunquedegli altri tasti
-	}
-}
+
 /* USER CODE END 0 */
 
 /**
@@ -263,6 +301,7 @@ int main(void)
   MX_TIM3_Init();
   MX_ADC1_Init();
   MX_TIM4_Init();
+  MX_UART4_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Init(&htim2);
   HAL_TIM_Base_Start(&htim2);
@@ -270,6 +309,7 @@ int main(void)
   HAL_ADCEx_Calibration_Start(&hadc1, 0);
 
 
+  HAL_UART_Receive_IT(&huart4, RX_BUFFER, BUFFER_LEN);
 
   /* USER CODE END 2 */
 
@@ -324,8 +364,9 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB|RCC_PERIPHCLK_I2C1
-                              |RCC_PERIPHCLK_ADC12;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB|RCC_PERIPHCLK_UART4
+                              |RCC_PERIPHCLK_I2C1|RCC_PERIPHCLK_ADC12;
+  PeriphClkInit.Uart4ClockSelection = RCC_UART4CLKSOURCE_PCLK1;
   PeriphClkInit.Adc12ClockSelection = RCC_ADC12PLLCLK_DIV1;
   PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
   PeriphClkInit.USBClockSelection = RCC_USBCLKSOURCE_PLL;
@@ -600,7 +641,7 @@ static void MX_TIM4_Init(void)
   htim4.Instance = TIM4;
   htim4.Init.Prescaler = 48000-1;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 1000;
+  htim4.Init.Period = 2000;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
@@ -621,6 +662,41 @@ static void MX_TIM4_Init(void)
   /* USER CODE BEGIN TIM4_Init 2 */
 
   /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
+  * @brief UART4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_UART4_Init(void)
+{
+
+  /* USER CODE BEGIN UART4_Init 0 */
+
+  /* USER CODE END UART4_Init 0 */
+
+  /* USER CODE BEGIN UART4_Init 1 */
+
+  /* USER CODE END UART4_Init 1 */
+  huart4.Instance = UART4;
+  huart4.Init.BaudRate = 9600;
+  huart4.Init.WordLength = UART_WORDLENGTH_8B;
+  huart4.Init.StopBits = UART_STOPBITS_1;
+  huart4.Init.Parity = UART_PARITY_NONE;
+  huart4.Init.Mode = UART_MODE_RX;
+  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart4.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart4.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN UART4_Init 2 */
+
+  /* USER CODE END UART4_Init 2 */
 
 }
 
