@@ -26,13 +26,6 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef struct{
-	int mode; //intero per modalità corrente
-	float intensity;
-	//bool LightON; //bool true se luce accesa, false altrimenti
-	int tempo; //tempo rimanente
-	uint32_t signalRcv;//dato ricevuto dal remote controller
-}SmartLamp;
 
 /* USER CODE END PTD */
 
@@ -46,11 +39,15 @@ typedef struct{
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
- I2C_HandleTypeDef hi2c1;
+ ADC_HandleTypeDef hadc1;
+
+I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 PCD_HandleTypeDef hpcd_USB_FS;
 
@@ -65,6 +62,9 @@ static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USB_PCD_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -75,64 +75,146 @@ void delay_us(uint16_t us){
 	__HAL_TIM_SET_COUNTER(&htim2,0);
 	while(__HAL_TIM_GET_COUNTER(&htim2)<=us);
 }
-uint32_t data=0;
-uint8_t count=0;
+
+int stato = 0;
+int config = 0;
+int countdown = 0;
+
 uint32_t receive_data (void)
 {
 
 	  uint32_t code=0;
-
-		  /* The START Sequence begin here
-	   * there will be a pulse of 9ms LOW and
-	   * than 4.5 ms space (HIGH)
-	   */
 	  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go high.. 9ms LOW
-
 	  while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go low.. 4.5ms HIGH
-	  /* START of FRAME ends here*/
-
-	  /* DATA Reception
-	   * We are only going to check the SPACE after 562.5us pulse
-	   * if the space is 562.5us, the bit indicates '0'
-	   * if the space is around 1.6ms, the bit is '1'
-	   */
 
 	  for (int i=0; i<32; i++)
 	  {
-		  count=0;
-
-		  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10))); // wait for pin to go high.. this is 562.5us LOW
-
-		  while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)))
-		  {
+		  uint8_t count=0;
+		  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));
+		  while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10))){
 			  count++;
-			  HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_9);
 			  delay_us(100);
-			  HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_9);
 		  }
 
-		  if (count > 12) // if the space is more than 1.2 ms
-		  {
-			  code |= (1UL << (31-i));   // write 1
-		  }
-
-		  else code &= ~(1UL << (31-i));  // write 0
+		  if (count > 12) code |= (1UL << (31-i));
+		  else code &= ~(1UL << (31-i));
 	  }
 
 		return code;
 }
 
-SmartLamp S;
-
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-	//HAL_GPIO_TogglePin(GPIOE,GPIO_PIN_9);
-	if(GPIO_Pin == GPIO_PIN_10){
-		while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go low.. 4.5ms HIGH
-		data = receive_data ();
-		if(data==0xFFA25D) HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
-		HAL_Delay(300);
+int convert_data_ir(uint32_t data){
+	switch(data) {
+		case 0xFFA25D: return 0; break; // power
+		case 0xFFE21D: return 1; break; //func/stop
+		case 0xFF629D: return 2; break; //vol+
+		case 0xFF22DD: return 3; break; //fast back
+		case 0xFF02FD: return 4; break; //pause
+		case 0xFFC23D: return 5; break; //fast forward
+		case 0xFFE01F: return 6; break; //down
+		case 0xFFA857: return 7; break; //vol-
+		case 0xFF906F: return 8; break; //up
+		case 0xFF9867: return 9; break; // eq
+		case 0xFFB04F: return 10; break; //st/rept
+		case 0xFF6897: return 11; break; //0
+		case 0xFF30CF: return 12; break; //1
+		case 0xFF18E7: return 13; break; //2
+		case 0xFF7A85: return 14; break; //3
+		case 0xFF10EF: return 15; break; // 4
+		case 0xFF38C7: return 16; break; //5
+		case 0xFF5AA5: return 17; break; //6
+		case 0xFF42BD: return 18; break; //7
+		case 0xFF4AB5: return 19; break; // 8
+		case 0xFF52AD: return 20; break; //9
+		case 0xFFFFFFFF: return 21;break; //repeat
+		default:  return -1; //err
 	}
 }
+
+void spegni_luce(){
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+}
+
+void accendi_luce(){
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+}
+
+void toggle_luce(){
+	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+}
+
+void gestisci_tasto(int tasto){
+	if(stato == 0){
+		if(tasto == 0){
+			toggle_luce();
+		}
+		else if(tasto == 1){
+			spegni_luce();
+			HAL_TIM_Base_Start_IT(&htim4); // avvio tim3 per le misurazioni della luce
+			stato = 1;
+		}
+	}
+	else if(stato == 1){
+		if(tasto == 1){
+			HAL_TIM_Base_Stop_IT(&htim4);
+			spegni_luce();
+			config = 1;
+			countdown = 0;
+			stato = 2;
+		}
+	}
+	else if(stato == 2){
+		if(tasto == 1){
+			stato = 0;
+		} else if(config == 1){
+			if(tasto == 9){
+				config = 0;
+				accendi_luce();
+				__HAL_TIM_SET_COUNTER(&htim3,0);
+				HAL_TIM_Base_Start_IT(&htim3);
+			} else if(tasto >= 11 && tasto <= 20){ // se premo un numero
+				tasto = tasto - 11;
+				countdown = countdown*10 + tasto;
+			}
+		}
+	}
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+
+	if(GPIO_Pin == GPIO_PIN_10){
+		while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));
+
+		uint32_t data = receive_data();
+		int tasto = convert_data_ir(data);
+
+		gestisci_tasto(tasto);
+		HAL_Delay(200);
+	}
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+ if(htim == &htim3){
+	 if(countdown == 0){
+		 if(stato == 2){
+			 spegni_luce();
+		 	 config = 1;
+		 }
+		 HAL_TIM_Base_Stop_IT(&htim3);
+	 }
+	 else
+		 countdown--;
+ }
+ if(htim == &htim4 && stato == 1){
+	 HAL_ADC_Start(&hadc1);
+	 HAL_ADC_PollForConversion(&hadc1, 1);
+	 uint16_t AD_RES = HAL_ADC_GetValue(&hadc1);
+	 if(AD_RES >= 2000) accendi_luce(); //accendi
+	 else spegni_luce(); //spegni
+ }
+}
+
+
 //dato per assunto un if nel main che controlla signalRcv=FUNC/STOP, la funzione cambia
 //la modalità di funzionamento in base al tasto premuto
 
@@ -178,11 +260,17 @@ int main(void)
   MX_SPI1_Init();
   MX_USB_PCD_Init();
   MX_TIM2_Init();
+  MX_TIM3_Init();
+  MX_ADC1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Init(&htim2);
   HAL_TIM_Base_Start(&htim2);
-  delay_us(600);
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET);
+
+  HAL_ADCEx_Calibration_Start(&hadc1, 0);
+
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -192,6 +280,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
   }
   /* USER CODE END 3 */
 }
@@ -235,13 +324,81 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB|RCC_PERIPHCLK_I2C1;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB|RCC_PERIPHCLK_I2C1
+                              |RCC_PERIPHCLK_ADC12;
+  PeriphClkInit.Adc12ClockSelection = RCC_ADC12PLLCLK_DIV1;
   PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
   PeriphClkInit.USBClockSelection = RCC_USBCLKSOURCE_PLL;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_MultiModeTypeDef multimode = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure the ADC multi-mode
+  */
+  multimode.Mode = ADC_MODE_INDEPENDENT;
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -378,6 +535,96 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 48000-1;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 1000;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 48000-1;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 1000;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
   * @brief USB Initialization Function
   * @param None
   * @retval None
@@ -450,12 +697,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB0 */
   GPIO_InitStruct.Pin = GPIO_PIN_0;

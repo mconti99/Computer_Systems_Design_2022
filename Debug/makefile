@@ -60,8 +60,8 @@ all: main-build
 main-build: LuceSmart.elf secondary-outputs
 
 # Tool invocations
-LuceSmart.elf LuceSmart.map: $(OBJS) $(USER_OBJS) C:\Users\itama\STM32CubeIDE\workspace_1.9.0\LuceSmart\STM32F303VCTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "LuceSmart.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\itama\STM32CubeIDE\workspace_1.9.0\LuceSmart\STM32F303VCTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="LuceSmart.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+LuceSmart.elf LuceSmart.map: $(OBJS) $(USER_OBJS) C:\Users\franc\Documents\GitHub\Computer_Systems_Design_2022\STM32F303VCTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "LuceSmart.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\franc\Documents\GitHub\Computer_Systems_Design_2022\STM32F303VCTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="LuceSmart.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
