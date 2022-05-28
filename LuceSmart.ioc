@@ -1,6 +1,7 @@
 #MicroXplorer Configuration settings - do not modify
 ADC1.Channel-0\#ChannelRegularConversion=ADC_CHANNEL_1
-ADC1.IPParameters=Rank-0\#ChannelRegularConversion,master,Channel-0\#ChannelRegularConversion,SamplingTime-0\#ChannelRegularConversion,SamplingTimeOPAMP-0\#ChannelRegularConversion,OffsetNumber-0\#ChannelRegularConversion,Offset-0\#ChannelRegularConversion,NbrOfConversionFlag
+ADC1.ExternalTrigConv=ADC_EXTERNALTRIGCONV_T4_TRGO
+ADC1.IPParameters=Rank-0\#ChannelRegularConversion,master,Channel-0\#ChannelRegularConversion,SamplingTime-0\#ChannelRegularConversion,SamplingTimeOPAMP-0\#ChannelRegularConversion,OffsetNumber-0\#ChannelRegularConversion,Offset-0\#ChannelRegularConversion,NbrOfConversionFlag,ExternalTrigConv
 ADC1.NbrOfConversionFlag=1
 ADC1.Offset-0\#ChannelRegularConversion=0
 ADC1.OffsetNumber-0\#ChannelRegularConversion=ADC_OFFSET_NONE
@@ -326,9 +327,10 @@ TIM3.IPParameters=Prescaler,Period,TIM_MasterOutputTrigger,CounterMode
 TIM3.Period=1000
 TIM3.Prescaler=48000-1
 TIM3.TIM_MasterOutputTrigger=TIM_TRGO_RESET
-TIM4.IPParameters=Prescaler,Period
+TIM4.IPParameters=Prescaler,Period,TIM_MasterOutputTrigger
 TIM4.Period=2000
 TIM4.Prescaler=48000-1
+TIM4.TIM_MasterOutputTrigger=TIM_TRGO_UPDATE
 UART4.BaudRate=9600
 UART4.IPParameters=BaudRate,Mode,WordLength
 UART4.Mode=MODE_RX

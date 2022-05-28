@@ -1,9 +1,9 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
+  **************************
   * @file           : main.c
   * @brief          : Main program body
-  ******************************************************************************
+  **************************
   * @attention
   *
   * Copyright (c) 2022 STMicroelectronics.
@@ -13,7 +13,7 @@
   * in the root directory of this software component.
   * If no LICENSE file comes with this software, it is provided AS-IS.
   *
-  ******************************************************************************
+  **************************
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
@@ -104,6 +104,10 @@ void gestisci_tasto(int tasto){
 			toggle_luce();
 		}
 		else if(tasto == 1){
+			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_10,GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_11,GPIO_PIN_SET);
+
+
 			spegni_luce();
 			HAL_TIM_Base_Start_IT(&htim4);
 			stato = 1;
@@ -111,6 +115,9 @@ void gestisci_tasto(int tasto){
 	}
 	else if(stato == 1){
 		if(tasto == 1){
+			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_11,GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_12,GPIO_PIN_SET);
+
 			HAL_TIM_Base_Stop_IT(&htim4);
 			spegni_luce();
 			config = 1;
@@ -120,6 +127,9 @@ void gestisci_tasto(int tasto){
 	}
 	else if(stato == 2){
 		if(tasto == 1){
+			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_12,GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_10,GPIO_PIN_SET);
+
 			stato = 0;
 		} else if(config == 1){
 			if(tasto == 9){
@@ -234,11 +244,13 @@ int convert_data_bt(uint8_t data){
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
   if(stato == 1){
 	  uint16_t adc_val = HAL_ADC_GetValue(&hadc1);
-	  if(AD_RES >= 2000) accendi_luce();
+	  if(adc_val >= 2000) accendi_luce();
   	  else spegni_luce();
-	  HAL_TIM_Base_Start_IT(&htim4);
+	 // HAL_TIM_Base_Start_IT(&htim4);
   }
 }
+
+
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart){
 	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET);
@@ -250,22 +262,23 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart){
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
- if(htim == &htim3){
-	 if(countdown == 0){
-		 if(stato == 2){
-			 spegni_luce();
-		 	 config = 1;
-		 }
-		 HAL_TIM_Base_Stop_IT(&htim3);
-	 }
-	 else
-		 countdown--;
- }
- if(htim == &htim4){
-	 if(stato == 1) HAL_ADC_Start(&hadc1);
-	 HAL_TIM_Base_Stop_IT(&htim4);
-	 __HAL_TIM_SET_COUNTER(&htim3,0);
- }
+	if(htim == &htim3){
+		if(countdown == 0){
+			if(stato == 2){
+				spegni_luce();
+				config = 1;
+			}
+			HAL_TIM_Base_Stop_IT(&htim3);
+		}
+		else
+			countdown--;
+	}/*
+	if(htim == &htim4){
+		HAL_ADC_Start(&hadc1);
+		HAL_TIM_Base_Stop_IT(&htim4);
+		//HAL_ADC_PollForConversion(&hadc1,1000);
+		//__HAL_TIM_SET_COUNTER(&htim4,0);
+	}*/
 }
 
 /* USER CODE END 0 */
@@ -315,6 +328,7 @@ int main(void)
 
 
   HAL_UART_Receive_IT(&huart4, RX_BUFFER, BUFFER_LEN);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
 
   /* USER CODE END 2 */
 
@@ -408,8 +422,8 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T4_TRGO;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DMAContinuousRequests = DISABLE;
@@ -658,7 +672,7 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
   {
