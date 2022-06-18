@@ -107,7 +107,6 @@ void gestisci_tasto(int tasto){
 			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_10,GPIO_PIN_RESET);
 			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_11,GPIO_PIN_SET);
 
-
 			spegni_luce();
 			HAL_TIM_Base_Start_IT(&htim4);
 			stato = 1;
@@ -130,15 +129,19 @@ void gestisci_tasto(int tasto){
 			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_12,GPIO_PIN_RESET);
 			HAL_GPIO_WritePin(GPIOE,GPIO_PIN_10,GPIO_PIN_SET);
 
+			spegni_luce();
+			HAL_TIM_Base_Stop_IT(&htim3);
 			stato = 0;
-		} else if(config == 1){
+		}
+		else if(config == 1){ // deve essere configurato il timer
 			if(tasto == 9){
 				config = 0;
 				countdown--;
 				accendi_luce();
 				__HAL_TIM_SET_COUNTER(&htim3,0);
 				HAL_TIM_Base_Start_IT(&htim3);
-			} else if(tasto >= 11 && tasto <= 20){
+			}
+			else if(tasto >= 11 && tasto <= 20){ //pressione di un numero
 				tasto = tasto - 11;
 				countdown = countdown*10 + tasto;
 			}
@@ -148,11 +151,9 @@ void gestisci_tasto(int tasto){
 
 uint32_t receive_data_ir (void){
 	  uint32_t code=0;
-
-	  while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10))); // whut^?
-	  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go high.. 9ms LOW
-      while ((HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));  // wait for the pin to go low.. 4.5ms HIGH
-
+	  while (HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10));
+	  while (!(HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10)));
+	  while (HAL_GPIO_ReadPin (GPIOA, GPIO_PIN_10));
 
 	  for (int i=0; i<32; i++){
 		  uint8_t count=0;
@@ -161,7 +162,6 @@ uint32_t receive_data_ir (void){
 			  count++;
 			  delay_us(100);
 		  }
-
 		  if (count > 12) code |= (1UL << (31-i));
 		  else code &= ~(1UL << (31-i));
 	  }
@@ -202,7 +202,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	if(GPIO_Pin == GPIO_PIN_10){
 		uint32_t data = receive_data_ir();
 		int tasto_premuto = convert_data_ir(data);
-
 		gestisci_tasto(tasto_premuto);
 	}
 }
@@ -246,14 +245,12 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
 	  uint16_t adc_val = HAL_ADC_GetValue(&hadc1);
 	  if(adc_val >= 2000) accendi_luce();
   	  else spegni_luce();
-	 // HAL_TIM_Base_Start_IT(&htim4);
   }
 }
 
 
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart){
-	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET);
 	if(huart->Instance == huart4.Instance){
 		uint8_t data = recive_data_bt();
 		int tasto_premuto = convert_data_bt(data);
@@ -272,13 +269,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		}
 		else
 			countdown--;
-	}/*
-	if(htim == &htim4){
-		HAL_ADC_Start(&hadc1);
-		HAL_TIM_Base_Stop_IT(&htim4);
-		//HAL_ADC_PollForConversion(&hadc1,1000);
-		//__HAL_TIM_SET_COUNTER(&htim4,0);
-	}*/
+	}
 }
 
 /* USER CODE END 0 */
