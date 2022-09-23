@@ -1,0 +1,59 @@
+
+PIADB	EQU	$2006
+PIACB	EQU	$2007
+MAX_BYTE	EQU	4
+MAX_MESS	EQU	3
+
+	ORG	$8000
+BEGIN	JSR	DVBOUT
+	MOVEA.L	#PIACB,A1	;indirizzo registro di controllo CRB
+	MOVEA.L	#PIADB,A2	;indirizzo registro PRB
+	MOVEA.L	#VETT,A0	;indirizzo area messaggio
+	MOVE.B	#MAX_BYTE,D0	;dim del messaggio
+	
+	CLR	D1	;appoggio
+	CLR	D2	;contatore elementi trasmessi
+
+
+INVIO	MOVE.B	(A2),D1            ;lettura fittizia da PRB => serve per azzerare CRB7 dopo il primo carattere, altrimenti resta settato con l'ack
+	MOVE.B	(A0)+,(A2)	;carattere corrente da trasferire su bus di PIA porto B: dopo la scrittura di PRB, CB2 si abbassa
+*								;ciò fa abbassare CA1 sulla porta gemella dell'altro sistema generando 
+*								;un'interruzione che coincide con il segnale DATA READY
+	ADD.B		#1,D2		    ;incremento contatore elementi trasmessi
+
+ciclo2	MOVE.B	(A1),D1		;In attesa di DATA ACKNOWLEDGE
+	ANDI.B	#$80,D1				;aspetta che CRB7 divenga 1
+	BEQ	ciclo2
+
+	CMP	D2,D0	;controllo se ho finito di trasmettere
+	BNE	INVIO
+	MOVE.B	#0,D2
+	ADDI.B	#1,CNT_MESS
+	MOVE.B	#MAX_MESS,D7
+	CMP.B	CNT_MESS,D7
+	BNE	INVIO
+	
+
+
+LOOP  	JMP LOOP	
+	
+DVBOUT
+	MOVE.B	#$00,PIACB
+	MOVE.B	#$FF,PIADB
+	MOVE.B	#$24,PIACB
+	RTS
+
+		*AREA DATI		
+	ORG		$8900
+VETT	DC.B	'ABCDEFGHJKLMOPQRSTUV'
+CNT_BYTE	DC.B	0
+CNT_MESS	DC.B	0
+				
+	END BEGIN		
+
+
+
+
+
+
+

@@ -1,0 +1,55 @@
+00000000                                     1  
+00000000  =00002006                          2  PIADB	EQU	$2006
+00000000  =00002007                          3  PIACB	EQU	$2007
+00000000  =00000004                          4  MAX_BYTE	EQU	4
+00000000  =00000003                          5  MAX_MESS	EQU	3
+00000000                                     6  
+00008000                                     7  	ORG	$8000
+00008000  4EB9 0000804E                      8  BEGIN	JSR	DVBOUT
+00008006  227C 00002007                      9  	MOVEA.L	#PIACB,A1	;indirizzo registro di controllo CRB
+0000800C  247C 00002006                     10  	MOVEA.L	#PIADB,A2	;indirizzo registro PRB
+00008012  207C 00008900                     11  	MOVEA.L	#VETT,A0	;indirizzo area messaggio
+00008018  103C 0004                         12  	MOVE.B	#MAX_BYTE,D0	;dim del messaggio
+0000801C                                    13  	
+0000801C  4241                              14  	CLR	D1	;appoggio
+0000801E  4242                              15  	CLR	D2	;contatore elementi trasmessi
+00008020                                    16  
+00008020                                    17  
+00008020  1212                              18  INVIO	MOVE.B	(A2),D1            ;lettura fittizia da PRB => serve per azzerare CRB7 dopo il primo carattere, altrimenti resta settato con l'ack
+00008022  1498                              19  	MOVE.B	(A0)+,(A2)	;carattere corrente da trasferire su bus di PIA porto B: dopo la scrittura di PRB, CB2 si abbassa
+00008024                                    20  *								;ciò fa abbassare CA1 sulla porta gemella dell'altro sistema generando 
+00008024                                    21  *								;un'interruzione che coincide con il segnale DATA READY
+00008024  5202                              22  	ADD.B		#1,D2		    ;incremento contatore elementi trasmessi
+00008026                                    23  
+00008026  1211                              24  ciclo2	MOVE.B	(A1),D1		;In attesa di DATA ACKNOWLEDGE
+00008028  0201 0080                         25  	ANDI.B	#$80,D1				;aspetta che CRB7 divenga 1
+0000802C  67F8                              26  	BEQ	ciclo2
+0000802E                                    27  
+0000802E  B042                              28  	CMP	D2,D0	;controllo se ho finito di trasmettere
+00008030  66EE                              29  	BNE	INVIO
+00008032  143C 0000                         30  	MOVE.B	#0,D2
+00008036  5239 00008915                     31  	ADDI.B	#1,CNT_MESS
+0000803C  1E3C 0003                         32  	MOVE.B	#MAX_MESS,D7
+00008040  BE39 00008915                     33  	CMP.B	CNT_MESS,D7
+00008046  66D8                              34  	BNE	INVIO
+00008048                                    35  	
+00008048                                    36  
+00008048                                    37  
+00008048  4EF9 00008048                     38  LOOP  	JMP LOOP	
+0000804E                                    39  	
+0000804E                                    40  DVBOUT
+0000804E  11FC 0000 2007                    41  	MOVE.B	#$00,PIACB
+00008054  11FC 00FF 2006                    42  	MOVE.B	#$FF,PIADB
+0000805A  11FC 0024 2007                    43  	MOVE.B	#$24,PIACB
+00008060  4E75                              44  	RTS
+00008062                                    45  
+00008062                                    46  		*AREA DATI		
+00008900                                    47  	ORG		$8900
+00008900  41 42 43 44 45 46 47 48 4A ...    48  VETT	DC.B	'ABCDEFGHJKLMOPQRSTUV'
+00008914  00                                49  CNT_BYTE	DC.B	0
+00008915  00                                50  CNT_MESS	DC.B	0
+00008916                                    51  				
+00008916                                    52  	END BEGIN		
+
+No errors detected
+No warnings generated
